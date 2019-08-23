@@ -1,0 +1,122 @@
+version: '3.7'
+
+networks:
+  vault_net:
+    driver: bridge
+    name: vault_net
+    ipam:
+      driver: default
+      config:
+      - subnet: 172.16.238.0/24
+
+services:
+
+  dynamodb:
+    image: amazon/dynamodb-local
+    hostname: "dynamo_local"
+    command: -jar DynamoDBLocal.jar -sharedDb -dbPath /data
+    volumes:
+      - ./localDB:/data
+    ports:
+      - 9000:8000
+    networks:
+      - vault_net
+          
+  vault_alpha:
+    depends_on:
+      - dynamodb
+      - localkms
+    image: "cldy_vault"
+    build: .
+    hostname: "vault_alpha"
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - vault_net
+    environment:
+      - VAULT_API_ADDR=http://vault_alpha:8200
+      - VAULT_CLUSTER_ADDR=http://vault_alpha:8201
+    ports:
+      - 9011:8200
+    volumes:
+      - ./configs/vault.config:/etc/vault/vault.config
+      - ./plugins:/etc/vault/vaultplugins
+    entrypoint:
+      - vault
+      - server
+    command:
+      - "-config=/etc/vault/vault.config"
+
+  vault_bravo:
+    depends_on:
+      - vault_alpha
+    image: "cldy_vault"
+    hostname: "vault_beta"
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - vault_net
+    environment:
+      - VAULT_API_ADDR=http://vault_beta:8200
+      - VAULT_CLUSTER_ADDR=http://vault_beta:8201
+    ports:
+      - 9012:8200
+    volumes:
+      - ./configs/vault.config:/etc/vault/vault.config
+      - ./plugins:/etc/vault/vaultplugins
+    entrypoint:
+      - vault
+      - server
+    command:
+      - "-config=/etc/vault/vault.config"
+
+  vault_charli:
+    depends_on:
+      - vault_alpha
+    image: "cldy_vault"
+    hostname: "vault_charli"
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - vault_net
+    environment:
+      - VAULT_API_ADDR=http://vault_charli:8200
+      - VAULT_CLUSTER_ADDR=http://vault_charli:8201
+    ports:
+      - 9013:8200
+    volumes:
+      - ./configs/vault.config:/etc/vault/vault.config
+      - ./plugins:/etc/vault/vaultplugins
+    entrypoint:
+      - vault
+      - server
+    command:
+      - "-config=/etc/vault/vault.config"
+
+  localkms:
+    image: nsmithuk/local-kms
+    hostname: localkms
+    depends_on:
+      - dynamodb
+    volumes:
+      - ./localKMS/data:/data
+      - ./localKMS/seed.yaml:/init/seed.yaml
+    environment:
+      - ACCOUNT_ID=X
+      - REGION=us-east-1
+    ports:
+      - 9001:8200
+    networks:
+      - vault_net
+
+  balancer:
+    image: haproxy
+    hostname: haproxy
+    depends_on:
+      - localkms
+    volumes:
+      - ./configs/haproxy.config:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - 8200:8200
+    networks:
+      - vault_net
