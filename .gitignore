@@ -1,2 +1,2 @@
-localDB/*
+localDB/shared-local-instance.db
 localKMS/data/*
